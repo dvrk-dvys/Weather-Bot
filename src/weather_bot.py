@@ -8,8 +8,6 @@ import os
 
 class WeatherBot:
     def __int__(self, args):
-       # os.environ["STREAMLIT_EMAIL"] = 'ja.harr91@gmail.com'
-
         self.weather_client = self.init_weather_client()
         print()
 
@@ -19,9 +17,8 @@ class WeatherBot:
         return streamlit.session_state.weather_client
 
 def main():
-    os.environ["STREAMLIT_EMAIL"] = ""
-
-    streamlit.title("Initializing Weather Chat Bot :cloud_with_lightning::robot::cloud_with_lightning:")
+    streamlit.title(emojize("Initializing Weather Chat Bot :cloud_with_lightning::robot::cloud_with_lightning:", language='alias'))
+    print('pycharm test')
     print()
 
 if __name__ == "__main__":
