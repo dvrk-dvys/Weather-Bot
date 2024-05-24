@@ -3,3 +3,4 @@ streamlit-chat
 streamlit-extras
 python-weather
 emoji
+openai

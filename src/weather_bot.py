@@ -9,11 +9,20 @@ import argparse
 import asyncio
 from emoji import emojize
 import os
+from openai import OpenAI
+import json
 
 
 class WeatherBot:
     def __init__(self):
         self.weather_client = None
+        #self.openai_token = os.getenv("OPENAI_API_KEY")
+        #OpenAI.api_key = streamlit.secrets.api_keys.OPENAI_API_KEY
+        os.environ["OPENAI_API_KEY"] = streamlit.secrets.api_keys.OPENAI_API_KEY
+
+        self.model = "gpt-4"
+
+
         self.css_bubble_style = """
             <style>
             .chat-container {
@@ -141,6 +150,9 @@ class WeatherBot:
                         }
 
 
+
+
+
     async def init_weather_client(self):
         if 'weather_client' not in streamlit.session_state:
             #new_loop = asyncio.new_event_loop()
@@ -246,6 +258,43 @@ class WeatherBot:
         #print(day_counts)
         return daily_forecasts
 
+
+
+    def prompt_gpt(self, role, prompt):
+        """
+        !!!!!!!THIS IS PAID!!!!!!!
+        """
+        GPTclient = OpenAI()
+        completion = GPTclient.chat.completions.create(
+            model=self.model,
+            messages=[
+                {"role": "system", "content": role},
+                {"role": "user", "content": prompt}
+            ]
+        )
+        response = completion.choices[0].message.content
+        response = json.loads(response)
+        print(response)
+        assert isinstance(response, list), f"{self.model} output is read to list"
+        assert isinstance(response[0], dict), f"{self.model} output is read to list"
+        return response
+
+    def extract_query(self, input):
+        new_context = f'Given theis sentences "{input}", and this weather data ontology {self.pw_ontology}'
+        prompt = new_context + f'Select the key or keys (up to 3) from the ontology that would satisfy the query?'
+        role = (
+            "You are a system that identifies what weather information the user is asking for. "
+            "Then, leveraging the provided ontology, formulate a response string with the appropriate data keys embedded as f-string formatted string literals using curly braces {}."
+            "Return your results as a results as a string with proper formatting and syntax. Be short and concise (up to 3 sentences) but friendly"
+            "If the input is not a weather query, kindly explain that you cannot accomplish that task, then ask again what kind of weather information they may have."
+            "If the expresses no interest in further queries and/or is ending the chat, have your only response be a simple one word string : 'END'."
+            "Ensure your output contains only contains the strings mentioned about with and no additional text or characters so your response can be parsed accordingly."
+        )
+        self.keys = self.prompt_gpt(role, prompt)
+        #assert len(self.aspects) == len(batch_input_array)
+        #return self.aspects  #, self.aspect_masks
+
+
     async def run(self):
         await self.init_weather_client()
         streamlit.title(emojize(":cloud_with_lightning::robot::cloud_with_lightning: Weather Chat Bot :cloud_with_lightning::robot::cloud_with_lightning:",
@@ -261,7 +310,8 @@ class WeatherBot:
         #streamlit.write(f"Weather in {location}: {weather.temperature}°C")
         message(f"Weather in {location}: {weather.temperature}°C")
         message(f"The weather today in {location} is {weather.kind.name}")
-
+        query = 'Will it rain today??'
+        self.extract_query(query)
         print()
 
         #if 'messages' not in streamlit.session_state:
