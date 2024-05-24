@@ -137,20 +137,6 @@ class WeatherBot:
                             "wind cardinal direction ": "wind_direction.name",
                             "wind direction value": "wind_direction.value"
         }
-                align-self: flex-end;
-                background-color: #DCF8C6;
-                color: #000;
-            }
-
-            .bot-bubble {
-                align-self: flex-start;
-                background-color: #ECECEC;
-                color: #000;
-            }
-            </style>
-            """
-
-
 
 
     async def init_weather_client(self):
