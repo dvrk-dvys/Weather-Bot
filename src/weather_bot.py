@@ -553,4 +553,6 @@ if __name__ == "__main__":
 #'Will it snow tomorrow afternoon in Berlin, Germany?'
 # What will be the heat and uv index today at noon in berlin?
 # What will the weather be like monday at around noon in nyc?
+
+#Thank you so much, all done good bye
 #
