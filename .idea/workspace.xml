@@ -5,6 +5,8 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="447843db-8fc0-40a7-9959-1452172a6c82" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/.idea/Weather-Bot.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/Weather-Bot.iml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/weather_bot.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/weather_bot.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -112,13 +114,8 @@
       <breakpoints>
         <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/src/weather_bot.py</url>
-          <line>445</line>
-          <option name="timeStamp" value="83" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
-          <url>file://$PROJECT_DIR$/src/weather_bot.py</url>
-          <line>443</line>
-          <option name="timeStamp" value="85" />
+          <line>470</line>
+          <option name="timeStamp" value="89" />
         </line-breakpoint>
       </breakpoints>
     </breakpoint-manager>
