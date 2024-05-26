@@ -13,6 +13,7 @@ from emoji import emojize
 import os
 from openai import OpenAI
 import json
+#import demjson
 from datetime import datetime
 import time
 from functools import wraps
@@ -24,16 +25,18 @@ nest_asyncio.apply()
 def json_error_handler(max_retries=3, delay_seconds=8, spec=''):
     def decorator(func):
         @wraps(func)
-        def wrapper(*args, **kwargs):
+        async def wrapper(*args, **kwargs):
             for attempt in range(max_retries):
                 try:
-                    return func(*args, **kwargs)
+                    return await func(*args, **kwargs)
                 except (json.JSONDecodeError, IndexError, ValueError, AssertionError) as e:
                     print(f"Error: {type(e).__name__} - {e}")
                     print(f"Error decoding {spec} JSON on attempt {attempt + 1}: {e}")
                     if attempt < max_retries - 1:
                         print(f"Retrying in {delay_seconds} seconds...")
-                        time.sleep(delay_seconds)
+                        #time.sleep(delay_seconds) ????
+                        await asyncio.sleep(delay_seconds)
+
                     else:
                         print("Max retries exceeded. Run Canceled")
                         break
@@ -50,6 +53,8 @@ class WeatherBot:
         self.model = "gpt-4o"
         self.todays_date = datetime.now()
         self.day_of_week = self.todays_date.strftime('%A')
+
+
 
 
         self.css_bubble_style = """
@@ -94,6 +99,14 @@ class WeatherBot:
             'night': {'time': '21:00:00', 'index': 7}
         }
 
+        self.data_date_constraint = {
+            'today': 0,
+            'tomorrow': 1,
+            'two days': 2
+        }
+
+            #['today', 'tomorrow', 'two days']
+
         self.parsed_query_data = {
                                   "ontology_labels": [],
                                   "intent": "",
@@ -117,7 +130,7 @@ class WeatherBot:
                 "chances_of_thunder": "int (percent)",
                 "chances_of_windy": "int (percent)",
                 "cloud_cover": "int (percent)",
-                "current_forecast_description": "str",
+                "hourly_forecast_description": "str",
                 "dew_point": "int (Celsius/Fahrenheit)",
                 "feels_like": "int (Celsius/Fahrenheit)",
                 "heat_index": "Celsius/Fahrenheit",
@@ -165,7 +178,7 @@ class WeatherBot:
                 "coordinates": "Tuple[float, float]",
                 "country": "str",
                 "daily_forecasts_generator": "Iterable[DailyForecast]",
-                "datetime": "datetime",
+                "local_datetime": "datetime",
                 "current_forecast_description": "str",
                 "feels_like": "int (Celsius/Fahrenheit)",
                 "humidity": "int (percent)",
@@ -192,23 +205,25 @@ class WeatherBot:
         }
 
     async def init_weather_client(self):
-        if 'weather_client' not in st.session_state:
+        if 'weather_client' not in st.session_state or self.weather_client is None:
             st.session_state.weather_client = python_weather.Client(unit=python_weather.METRIC)
-        #self.weather_client = st.session_state.weather_client
         return st.session_state.weather_client
 
     async def get_weather(self, location):
-        weather_client = await self.init_weather_client()
-        #asyncio.wait(self.weather_client.get(location))
-        weather = await asyncio.wait_for(weather_client.get(location), timeout=5)
-        await weather_client.close()
+        self.weather_client = await self.init_weather_client()
+        weather = await self.weather_client.get(location)
         return weather
+
+    async def close_client(self):
+        if 'weather_client' in st.session_state and not self.weather_client is None:
+            await st.session_state.weather_client.close()
+            self.weather_client = None
 
     def get_general_forecasts(self, weather):
         forecast_info = {
             "coordinates": weather.coordinates,
             "country": weather.country,
-            "datetime": weather.datetime.strftime("%H:%M:%S") if weather.datetime else "N/A",
+            "local_datetime": weather.datetime.strftime("%H:%M:%S") if weather.datetime else "N/A",
             "current_forecast_description": weather.description,
             "feels_like": weather.feels_like,
             "humidity": weather.humidity,
@@ -286,7 +301,7 @@ class WeatherBot:
                     "chances_of_thunder": HourlyForecast.chances_of_thunder,
                     "chances_of_windy": HourlyForecast.chances_of_windy,
                     "cloud_cover": HourlyForecast.cloud_cover,
-                    "current_forecast_description": HourlyForecast.description,
+                    "hourly_forecast_description": HourlyForecast.description,
                     "dew_point": HourlyForecast.dew_point,
                     "feels_like": HourlyForecast.feels_like,
                     "heat_index": HourlyForecast.heat_index.index,
@@ -313,7 +328,7 @@ class WeatherBot:
                     "wind_direction_object": HourlyForecast.wind_direction,
                     "wind_direction_degrees": HourlyForecast.wind_direction.degrees,
                     "wind_direction_emoji": HourlyForecast.wind_direction.emoji,
-                    "wind_direction_object": HourlyForecast.wind_direction.name,
+                    "wind_direction_name": HourlyForecast.wind_direction.name,
                     "wind_direction_abbr": HourlyForecast.wind_direction.value,
 
                     "wind_gust": HourlyForecast.wind_gust,
@@ -329,10 +344,22 @@ class WeatherBot:
         if json_match:
             json_str = json_match.group(0)
             try:
-                json_str = json_str.replace('\\', '')
+                json_str = json_str.replace('\"', '"')
+                json_str = json_str.replace('\\', '')  # Replacing double backslashes first
+                #json_str = json_str.replace('\', '')
+
                 json_str = json_str.replace('//', '')
 
+                json_str = json_str.replace('True', 'true')
+                json_str = json_str.replace('False', 'false')
+
+                json_str = re.sub(r'\\(?!["\\/bfnrt]|u[0-9A-Fa-f]{4})', '', json_str)
+
                 parsed_json = json.loads(json_str)
+                #parsed_json = demjson.decode(json_str)
+
+                parsed_json['response'] = parsed_json['response'].replace('[', '{')
+                parsed_json['response'] = parsed_json['response'].replace(']', '}')
                 return parsed_json
             except json.JSONDecodeError:
                 print("Failed to parse JSON.")
@@ -341,7 +368,8 @@ class WeatherBot:
             print("No JSON found in the response.")
             return None
 
-    @json_error_handler(max_retries=3, delay_seconds=2, spec='Base GPT Prompt')
+    #@rest_after_run(sleep_seconds=4)
+    #@json_error_handler(max_retries=3, delay_seconds=2, spec='Base GPT Prompt')
     async def prompt_gpt(self, role, prompt):
         """
         !!!!!!!THIS IS PAID!!!!!!!
@@ -360,8 +388,11 @@ class WeatherBot:
         print(cleaned_response)
         #response = json.loads(cleaned_response)
         #assert isinstance(cleaned_response, dict)
+        assert response is not None, "response should not be None"
         return cleaned_response
 
+    #@rest_after_run(sleep_seconds=5)
+    #@json_error_handler(max_retries=3, delay_seconds=2, spec='Json Queary Extractor')
     async def extract_query(self, input):
         new_context = f' You are operating as a weather chat bot that when given: ' \
                       f' user input "{input}",' \
@@ -374,16 +405,18 @@ class WeatherBot:
 
         role = (
             """
-            "1. Identify the single most relevant ontology parent key and weather datapoint key as a pair that satisfies each weather data request in the user input query. ex. [['hourly', 'chances_of_rain', ], ['daily', 'sunrise_time']]"
-            "2. Choose the appropriate intent label from the list: ['get_weather', 'greeting', 'goodbye', 'unknown']."
-            "3. Extract required data points: location (this could be a city, county, region or coordinates) and select a relative date term ['today', 'tomorrow', 'two days'] (default to 'today' if not specified)."
-            "4. If a time of day is specified select the appropriate label from the time_of_day_mapping. If not, it should remain an empty string."
+            "1. Identify the single most relevant ontology parent key and weather datapoint key as a pair that satisfies each weather data request in the user input query.
+            "Assume all weather and atmospheric data requests are 'general' unless a specific time of day or recurring daily phenomenon is given. If the input query is nondescript default to the 'general' parent key and pull the 'current_forecast_description']  
+            "Do not give Hourly or Daily data points unless explicitly required, default to the 'general' data points. EX. [['general', 'local_datetime'], ['general', 'sunrise_time'], ['general', 'wind_speed']]"
+            "2. If a time of day is specified select the appropriate label from the time_of_day_mapping. If not, it should remain an empty string."
+            "3. Choose the appropriate intent label from the list: ['get_weather', 'greeting', 'goodbye', 'unknown']."
+            "4. Extract required data points: location (this could be a city, county, region or coordinates) and select a relative date term ['today', 'tomorrow', 'two days'] (default to 'today' if not specified)."
             "5. Calculate the distance between today's date and the requested date using the day of the week and/or today's date. Ensure the requested date is within the range from today to two days from today's date. 
-            "If the request is out of the range, the date value should remain empty and you should apologiye and request they ask for a date that is iwthin the availability range.
-            "6. If all of the above points are successfully extracted set the "complete" value to true. Else remain false."
+            "If the request is out of the range, the date value should remain empty and you should apologize and request they ask for a date that is iwthin the availability range.
+            "6. If all of the above points are successfully extracted set the "complete" value to lower case true. Else remain false."
             "7. Considering the context that you extracted above (Location, relative date, time of day, intent) formulate a chatbot response that is friendly and contains this data explicitely. 
-            "Also uses brackets surrounding the selected ontological datapoint key(s) as an injectable variable(s) to satify the user data request which will be retrieved later."
-            "The weather datapoints will be injected into the f-string and is followed by the appropriate datatype symbol (%, KPH, MPH, C°, F°, K, Ect.) from the ontology. EX: 'The percent chance of rain this afternoon in Berlin, Germany is "{chances_of_rain}"%.'"
+            "Also use curly brackets {insert_variable} surrounding the selected ontological datapoint key(s) as an injectable variable(s) to satify the user data request which will be retrieved later. !!DO NOT EVER ADD these unwanted characters '\"' to the curly bracket injection!!"
+            "The weather datapoints will be injected into the f-string {dta} and is followed by the appropriate datatype symbol (%, KPH, MPH, C°, F°, K, Ect.) from the ontology. Choose the metric unit unless otherwise specified EX: 'The percent chance of rain this afternoon in Berlin, Germany is "{chances_of_rain}"%.'"
             "8. If any required data point is missing, formulate our chatbot_response to request the user to provide the missing information. The 'complete' value should remain False."
             "9. If the intent is unknown and the request is unable to be satisfied, formulate th chatbot_response to apologize and ask for different request that is within the aformentioned rules. The 'complete' value should remain False."
             "10. If the user wants to terminate the chat (intent: goodbye) say your goodbyes set 'complete' to true and fill the other JSON key values with NONE."
@@ -398,7 +431,8 @@ class WeatherBot:
               "complete": Bool,
               "response": "chatbot_response"
             }"
-            Finally check your output and remove any extra text that may be out side of the json array, check for trailing commas, missing or extra brackets, remove unneccessary slashes, correct quotation marks."
+            "Finally check your output and remove any extra text that may be outside of the json array, check for trailing commas, missing or extra brackets, incorrect brackets (ontology_labels uses square brackets [], response uses curly brackets for injection {}), do not add backslashes '\"' to the curly bracket injection."
+
             """
         )
 
@@ -410,9 +444,11 @@ class WeatherBot:
         for dp in parsed_query_data['ontology_labels']:
             print()
             if dp[0] == 'general':
-                print()
+                dp_value = self.general_forecasts[dp[1]]
+                dp_values[dp[1]] = dp_value
             elif dp[0] == 'daily':
-                print()
+                dp_value = self.daily_forecasts[self.data_date_constraint[parsed_query_data['date'].lower()]][dp[1]]
+                dp_values[dp[1]] = dp_value
             elif dp[0] == 'hourly':
                 if parsed_query_data['date'] == 'today':
                     tod_index = self.time_of_day_mapping[parsed_query_data['time'].lower()]['index']
@@ -443,8 +479,7 @@ class WeatherBot:
         return parsed_query_data
 
     async def get_input(self):
-        input_text = st.text_input("Ask me about the weather!", key="input")
-       # input_text = st.chat_input("Ask me about the weather!")
+        input_text = st.text_input("Ask me about the weather!", key="input", max_chars=100)
         return input_text
 
     async def run(self):
@@ -459,36 +494,30 @@ class WeatherBot:
 
         user_input = await self.get_input()
 
-        # query = 'Will it snow tomorrow afternoon in Berlin, Germany?'
-
         if user_input:
-            self.parsed_query_data = await asyncio.wait_for(self.extract_query(user_input), timeout=5)
             with st.spinner('Thinking...'):
-                time.sleep(3)
-            try:
-                self.parsed_query_data['complete']
-            except:
-                print()
+                self.parsed_query_data = await asyncio.wait_for(self.extract_query(user_input), timeout=5)
+                await asyncio.sleep(3)
 
             if self.parsed_query_data['complete']:
-                with st.spinner('Building...'):
-                    time.sleep(3)
-                weather = await asyncio.wait_for(self.get_weather(self.parsed_query_data['location']), timeout=5)
+                try:
+                    with st.spinner('Building...'):
+                        weather = await self.get_weather(self.parsed_query_data['location'])
+                        await asyncio.sleep(3)
 
-                self.general_forecasts = self.get_general_forecasts(weather)
-                self.daily_forecasts = self.get_daily_forecasts(weather)
-                hourly_generators = [self.daily_forecasts[0]['hourly_forecast_generator'],
-                                     self.daily_forecasts[1]['hourly_forecast_generator'],
-                                     self.daily_forecasts[2]['hourly_forecast_generator']]
-                self.hourly_forecasts = self.get_hourly_forecasts(hourly_generators)
-                bot_output = self.construct_reply(self.parsed_query_data)
-                self.parsed_query_data = self.reset_conversation_state
+                    self.general_forecasts = self.get_general_forecasts(weather)
+                    self.daily_forecasts = self.get_daily_forecasts(weather)
+                    hourly_generators = [self.daily_forecasts[0]['hourly_forecast_generator'],
+                                         self.daily_forecasts[1]['hourly_forecast_generator'],
+                                         self.daily_forecasts[2]['hourly_forecast_generator']]
+                    self.hourly_forecasts = self.get_hourly_forecasts(hourly_generators)
+                    bot_output = self.construct_reply(self.parsed_query_data)
+                    self.parsed_query_data = self.reset_conversation_state
+                finally:
+                    await self.close_client()
             else:
                 print('retry')
                 bot_output = self.parsed_query_data['response']
-
-            #with st.chat_message("assistant"):
-             #   st.markdown(bot_output)
 
             st.session_state.user_input.append(user_input)
             st.session_state.bot_response.append(bot_output)
@@ -506,10 +535,19 @@ async def main():
     wbot = WeatherBot()
     await wbot.run()
 if __name__ == "__main__":
-    st.set_option('server.port', 8502)
     asyncio.run(main())
 
 
+
+# general questions
+# What is the local time in berlin?
+# What is the weather going to be like in austin texas tomorrow? Also, what is the wind speed?
+# What is the humidity level in berlin today?
+
+# daily questions
+# When will the moon rise today in berlin?
+# What is the average temperature in London tomorrow?
+# Is there a full moon tonight in berlin ?
 
 # hourly questions
 #'Will it snow tomorrow afternoon in Berlin, Germany?'
