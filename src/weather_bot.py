@@ -1,4 +1,3 @@
-import inspect
 import re
 
 import streamlit as st
@@ -18,8 +17,6 @@ from datetime import datetime
 import time
 from functools import wraps
 
-import asyncio
-
 nest_asyncio.apply()
 
 def json_error_handler(max_retries=3, delay_seconds=8, spec=''):
@@ -34,9 +31,7 @@ def json_error_handler(max_retries=3, delay_seconds=8, spec=''):
                     print(f"Error decoding {spec} JSON on attempt {attempt + 1}: {e}")
                     if attempt < max_retries - 1:
                         print(f"Retrying in {delay_seconds} seconds...")
-                        #time.sleep(delay_seconds) ????
                         await asyncio.sleep(delay_seconds)
-
                     else:
                         print("Max retries exceeded. Run Canceled")
                         break
@@ -53,9 +48,6 @@ class WeatherBot:
         self.model = "gpt-4o"
         self.todays_date = datetime.now()
         self.day_of_week = self.todays_date.strftime('%A')
-
-
-
 
         self.css_bubble_style = """
             <style>
@@ -104,8 +96,6 @@ class WeatherBot:
             'tomorrow': 1,
             'two days': 2
         }
-
-            #['today', 'tomorrow', 'two days']
 
         self.parsed_query_data = {
                                   "ontology_labels": [],
@@ -345,7 +335,7 @@ class WeatherBot:
             json_str = json_match.group(0)
             try:
                 json_str = json_str.replace('\"', '"')
-                json_str = json_str.replace('\\', '')  # Replacing double backslashes first
+                json_str = json_str.replace('\\', '')
                 #json_str = json_str.replace('\', '')
 
                 json_str = json_str.replace('//', '')
@@ -386,8 +376,6 @@ class WeatherBot:
         print(response)
         cleaned_response = self.clean_gpt_response(response)
         print(cleaned_response)
-        #response = json.loads(cleaned_response)
-        #assert isinstance(cleaned_response, dict)
         assert response is not None, "response should not be None"
         return cleaned_response
 
