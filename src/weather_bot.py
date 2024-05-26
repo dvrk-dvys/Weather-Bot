@@ -506,7 +506,7 @@ async def main():
     wbot = WeatherBot()
     await wbot.run()
 if __name__ == "__main__":
-    st.set_option('server.port', 8502)
+    #st.set_option('server.port', 8502)
     asyncio.run(main())
 
 
