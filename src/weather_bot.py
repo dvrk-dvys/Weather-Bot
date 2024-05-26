@@ -207,21 +207,15 @@ class WeatherBot:
     async def init_weather_client(self):
         if 'weather_client' not in st.session_state or self.weather_client is None:
             st.session_state.weather_client = python_weather.Client(unit=python_weather.METRIC)
-        #self.weather_client = st.session_state.weather_client
         return st.session_state.weather_client
 
     async def get_weather(self, location):
         self.weather_client = await self.init_weather_client()
-        #asyncio.wait(self.weather_client.get(location))
-        #weather = await asyncio.wait_for(weather_client.get(location), timeout=5)
-        #weather = await asyncio.wait_for(self.weather_client.get(location), timeout=5)
         weather = await self.weather_client.get(location)
-        #await weather_client.close()
         return weather
 
     async def close_client(self):
         if 'weather_client' in st.session_state and not self.weather_client is None:
-            #await self.weather_client.close()
             await st.session_state.weather_client.close()
             self.weather_client = None
 
@@ -441,11 +435,8 @@ class WeatherBot:
 
             """
         )
-#            Finally check your output and remove any extra text that may be out side of the json array, check for trailing commas, missing or extra brackets, remove unneccessary slashes \, correct quotation marks."
 
         response = await self.prompt_gpt(role, prompt)
-        #time.sleep(5)
-        #assert response is not None, "response should not be None"
         return response
     def construct_reply(self, parsed_query_data):
         print()
@@ -489,15 +480,12 @@ class WeatherBot:
 
     async def get_input(self):
         input_text = st.text_input("Ask me about the weather!", key="input", max_chars=100)
-       # input_text = st.chat_input("Ask me about the weather!")
         return input_text
 
     async def run(self):
         st.title(emojize(":cloud_with_lightning::robot::cloud_with_lightning: Weather Chat Bot :cloud_with_lightning::robot::cloud_with_lightning:",
                                 language='alias'))
         print('pycharm test')
-        #self.weather_client = await self.init_weather_client()
-
         if 'user_input' not in st.session_state:
             st.session_state['user_input'] = []
 
@@ -506,28 +494,16 @@ class WeatherBot:
 
         user_input = await self.get_input()
 
-        # query = 'Will it snow tomorrow afternoon in Berlin, Germany?'
-
         if user_input:
-            #self.parsed_query_data = await self.extract_query(user_input)
             with st.spinner('Thinking...'):
                 self.parsed_query_data = await asyncio.wait_for(self.extract_query(user_input), timeout=5)
                 await asyncio.sleep(3)
-                #time.sleep(3)
 
             if self.parsed_query_data['complete']:
                 try:
                     with st.spinner('Building...'):
-                        #self.weather_client = await asyncio.wait_for(self.init_weather_client(), timeout=5)
-
-                        #self.weather_client = await self.init_weather_client()
-                        #weather = await asyncio.wait_for(self.get_weather(self.parsed_query_data['location']), timeout=5)
                         weather = await self.get_weather(self.parsed_query_data['location'])
-
-                        #time.sleep(3)
                         await asyncio.sleep(3)
-
-                    #weather = await asyncio.wait_for(self.get_weather(self.parsed_query_data['location']), timeout=5)
 
                     self.general_forecasts = self.get_general_forecasts(weather)
                     self.daily_forecasts = self.get_daily_forecasts(weather)
@@ -535,7 +511,6 @@ class WeatherBot:
                                          self.daily_forecasts[1]['hourly_forecast_generator'],
                                          self.daily_forecasts[2]['hourly_forecast_generator']]
                     self.hourly_forecasts = self.get_hourly_forecasts(hourly_generators)
-                    #await self.close_client()
                     bot_output = self.construct_reply(self.parsed_query_data)
                     self.parsed_query_data = self.reset_conversation_state
                 finally:
@@ -543,9 +518,6 @@ class WeatherBot:
             else:
                 print('retry')
                 bot_output = self.parsed_query_data['response']
-
-            #with st.chat_message("assistant"):
-             #   st.markdown(bot_output)
 
             st.session_state.user_input.append(user_input)
             st.session_state.bot_response.append(bot_output)
@@ -563,7 +535,6 @@ async def main():
     wbot = WeatherBot()
     await wbot.run()
 if __name__ == "__main__":
-    #st.set_option('server.port', 8502)
     asyncio.run(main())
 
 
