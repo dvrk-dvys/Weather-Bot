@@ -1,21 +1,16 @@
 import re
+import os
+import json
+from datetime import datetime
+from functools import wraps
 
 import streamlit as st
 from streamlit_chat import message
-from streamlit_extras.colored_header import colored_header
-from streamlit_extras.add_vertical_space import add_vertical_space
 import python_weather
-import argparse
 import nest_asyncio
 import asyncio
 from emoji import emojize
-import os
 from openai import OpenAI
-import json
-#import demjson
-from datetime import datetime
-import time
-from functools import wraps
 
 nest_asyncio.apply()
 
@@ -44,7 +39,9 @@ def json_error_handler(max_retries=3, delay_seconds=8, spec=''):
 class WeatherBot:
     def __init__(self):
         self.weather_client = None
+        self.terminate = False
         os.environ["OPENAI_API_KEY"] = st.secrets.api_keys.OPENAI_API_KEY
+        self.GIPHY_API_KEY = st.secrets.api_keys.GIPHY_API_KEY
         self.model = "gpt-4o"
         self.todays_date = datetime.now()
         self.day_of_week = self.todays_date.strftime('%A')
@@ -64,6 +61,7 @@ class WeatherBot:
                 padding: 10px 20px;
                 margin: 5px 0;
                 max-width: 80%;
+                word-wrap: break-word;
             }
 
             .user-bubble {
@@ -77,8 +75,15 @@ class WeatherBot:
                 background-color: #ECECEC;
                 color: #000;
             }
+
+            .gif-image {
+                max-width: 100%;
+                height: auto;
+                border-radius: 10px;
+                margin-top: 10px;
+            }
             </style>
-            """
+        """
 
         self.time_of_day_mapping = {
             'midnight': {'time': '00:00:00', 'index': 0},
@@ -89,6 +94,16 @@ class WeatherBot:
             'afternoon': {'time': '15:00:00', 'index': 5},
             'evening': {'time': '18:00:00', 'index': 6},
             'night': {'time': '21:00:00', 'index': 7}
+        }
+
+        self.day_of_the_week_mapping = {
+            'sunday': 0,
+            'monday': 1,
+            'tuesday':  2,
+            'wednesday':  3,
+            'thursday':  4,
+            'friday': 5,
+            'saturday': 6
         }
 
         self.data_date_constraint = {
@@ -265,7 +280,6 @@ class WeatherBot:
                 "measuring_unit_object": DailyForecast.unit
             }
             daily_forecasts.append(forecast_info)
-        #print(day_counts)
         return daily_forecasts
 
     def get_hourly_forecasts(self, weather):
@@ -384,31 +398,47 @@ class WeatherBot:
     async def extract_query(self, input):
         new_context = f' You are operating as a weather chat bot that when given: ' \
                       f' user input "{input}",' \
-                      f' Todays day of the week "{self.day_of_week}", Todays Date "{self.todays_date}",' \
+                      f' Todays day of the week "{self.day_of_week}", Todays Date "{self.todays_date}", Day of the week mapping "{self.day_of_the_week_mapping}"' \
                       f' available hourly data times "{self.time_of_day_mapping}",' \
                       f' the conversation state "{self.parsed_query_data}",' \
                       f' and this weather data ontology {self.pw_ontology}'
 
-        prompt = new_context + f'Select the weather datapoint key from the ontology that would satisfy the query?'
-
+        prompt = new_context + f'Select the weather datapoint keys from the ontology that would satisfy the query. Then construct a json array with these values:' \
+                               f' ("ontology_labels", "intent", "date": "relative_date_terms","time", "location", "complete", "response")' \
+                               f' These are the same values in the conversation state'
         role = (
             """
-            "1. Identify the single most relevant ontology parent key and weather datapoint key as a pair that satisfies each weather data request in the user input query.
-            "Assume all weather and atmospheric data requests are 'general' unless a specific time of day or recurring daily phenomenon is given. If the input query is nondescript default to the 'general' parent key and pull the 'current_forecast_description']  
-            "Do not give Hourly or Daily data points unless explicitly required, default to the 'general' data points. EX. [['general', 'local_datetime'], ['general', 'sunrise_time'], ['general', 'wind_speed']]"
-            "2. If a time of day is specified select the appropriate label from the time_of_day_mapping. If not, it should remain an empty string."
-            "3. Choose the appropriate intent label from the list: ['get_weather', 'greeting', 'goodbye', 'unknown']."
-            "4. Extract required data points: location (this could be a city, county, region or coordinates) and select a relative date term ['today', 'tomorrow', 'two days'] (default to 'today' if not specified)."
-            "5. Calculate the distance between today's date and the requested date using the day of the week and/or today's date. Ensure the requested date is within the range from today to two days from today's date. 
-            "If the request is out of the range, the date value should remain empty and you should apologize and request they ask for a date that is iwthin the availability range.
-            "6. If all of the above points are successfully extracted set the "complete" value to lower case true. Else remain false."
-            "7. Considering the context that you extracted above (Location, relative date, time of day, intent) formulate a chatbot response that is friendly and contains this data explicitely. 
-            "Also use curly brackets {insert_variable} surrounding the selected ontological datapoint key(s) as an injectable variable(s) to satify the user data request which will be retrieved later. !!DO NOT EVER ADD these unwanted characters '\"' to the curly bracket injection!!"
-            "The weather datapoints will be injected into the f-string {dta} and is followed by the appropriate datatype symbol (%, KPH, MPH, C°, F°, K, Ect.) from the ontology. Choose the metric unit unless otherwise specified EX: 'The percent chance of rain this afternoon in Berlin, Germany is "{chances_of_rain}"%.'"
-            "8. If any required data point is missing, formulate our chatbot_response to request the user to provide the missing information. The 'complete' value should remain False."
-            "9. If the intent is unknown and the request is unable to be satisfied, formulate th chatbot_response to apologize and ask for different request that is within the aformentioned rules. The 'complete' value should remain False."
-            "10. If the user wants to terminate the chat (intent: goodbye) say your goodbyes set 'complete' to true and fill the other JSON key values with NONE."
-
+            "Overall Rules:
+            " - Identify the single most relevant ontology parent key and weather datapoint key as a pair that satisfies each weather data request in the user input query."
+            " - Assume all weather and atmospheric data requests are 'general' unless a specific time of day or recurring daily weather phenomenon is given."
+            " - If the input query is nondescript default to the 'general' parent key and pull the 'current_forecast_description'"
+            " - Do not give Hourly or Daily data points unless explicitly required, default to the 'general' data points. 
+            " - EX. [['general', 'local_datetime'], ['general', 'sunrise_time'], ['general', 'wind_speed'], ['daily', 'sunlight_hours']]"
+            "User Intent Rules:"
+            " - Choose the appropriate intent label from the list: ['get_weather', 'greeting', 'goodbye', 'unknown']"
+            " - If the user intent is to 'get_weather' continue to the next rules. If not skip to the response: and format: rules to satisfy thier other intents."
+            "Temporal Rules:
+            "Date: REQUIRED"
+            " - Extract the the intended date of the query. The data is constrained to two days in the future from todays date! If a day of the week is used use the 'day of the week mapping' to calculate if the delta of the query is within or equal to the range of 3."
+            " - If the request date delta is out of range leave the date as an empty string and skip to the response: and format: rules to request they adjust thier query to be within the data availability range."
+            " - If not, select the appropriate relative date term ['today', 'tomorrow', 'two days']. If no date term is given at all assume the date query is for 'today'."
+            "Time:"
+            " - If a time of day is specified select the appropriate label from the time_of_day_mapping. If not, the value should remain an empty string."
+            " - If any of the chosen ontology parent keys are 'hourly' but no time of day is mentioned in then just assume that the weather datapoint keys should be pulled for 'noon', '12:00:00'."
+            "Spatial Rule"
+            "Location: REQUIRED"
+            " - Extract the intended location (this could be a city, county, region or coordinates). If no location is given, the value should remain an empty string and skip to the response: and format: rules to request they provide a location."
+            "Response (Generation) Rules:"
+            " - If all of the above points are successfully extracted set the "complete" value to lower case true boolean. Else remain false."
+            " - Considering the context that you extracted above (Location, relative date, time of day, intent) formulate a chatbot response that is friendly and contains this data explicitely. 
+            " - !IMPORTANT RESPONSE FORMATTING! Use curly brackets {insert_variable} surrounding the selected ontological weather datapoint key(s) as an injectable variable(s) to satify the user data request which will be retrieved later. !!DO NOT EVER!! Add these unwanted characters '\"' to the curly bracket injection!!"
+            " - The weather datapoints will be injected into the f-string {insert_variable} and is followed by the appropriate datatype symbol (%, KPH, MPH, C°, F°, K, Ect.) from the ontology. Choose the metric unit unless otherwise specified "
+            " - EX: 'The percent chance of rain this afternoon in Berlin, Germany is "{chances_of_rain}"%.'"
+            " - If any required data point is missing, formulate our chatbot_response to request the user to provide the missing information. The 'complete' value should remain False."
+            " - If the conversation state shows that they have expressed a sentiment (positive or netural) about your previous response in the conversation state you may add a sentence referencing their sentiment."
+            " - If the intent is unknown and the request is unable to be satisfied, formulate th chatbot_response to apologize and ask for different request that is within the aformentioned rules. The 'complete' value should remain False."
+            " - If the user wants to terminate the chat (intent: 'goodbye') say your goodbyes, set (complete: true) and the other values should remain as they are."
+            "Output Format Rules"
             "Only output a singular a structured JSON formatted array based on the example below :
             "{
               "ontology_labels": ["list_of_relevant_ontology_datapoint_pairs"],
@@ -420,12 +450,12 @@ class WeatherBot:
               "response": "chatbot_response"
             }"
             "Finally check your output and remove any extra text that may be outside of the json array, check for trailing commas, missing or extra brackets, incorrect brackets (ontology_labels uses square brackets [], response uses curly brackets for injection {}), do not add backslashes '\"' to the curly bracket injection."
-
             """
         )
 
         response = await self.prompt_gpt(role, prompt)
         return response
+
     def construct_reply(self, parsed_query_data):
         print()
         dp_values = {}
@@ -456,18 +486,18 @@ class WeatherBot:
 
     def reset_conversation_state(self):
         parsed_query_data = {
-                                  "ontology_labels": [],
-                                  "intent": "",
-                                  "date": "",
-                                  "time": "",
-                                  "location": "",
-                                  "complete": False,
-                                  "response": ""
+                              "ontology_labels": [],
+                              "intent": "",
+                              "date": "",
+                              "time": "",
+                              "location": "",
+                              "complete": False,
+                              "response": self.parsed_query_data['response']
         }
         return parsed_query_data
 
     async def get_input(self):
-        input_text = st.text_input("Ask me about the weather!", key="input", max_chars=100)
+        input_text = st.text_input("Ask me about the weather! (Please limit your queries to one location at a time)", key="input", max_chars=100)
         return input_text
 
     async def run(self):
@@ -480,6 +510,12 @@ class WeatherBot:
         if "bot_response" not in st.session_state:
             st.session_state['bot_response'] = []
 
+        if 'input_text' not in st.session_state:
+            st.session_state['input_text'] = ""
+
+        if 'terminate' not in st.session_state:
+            st.session_state['terminate'] = False
+
         user_input = await self.get_input()
 
         if user_input:
@@ -487,7 +523,7 @@ class WeatherBot:
                 self.parsed_query_data = await asyncio.wait_for(self.extract_query(user_input), timeout=5)
                 await asyncio.sleep(3)
 
-            if self.parsed_query_data['complete']:
+            if self.parsed_query_data['complete'] and self.parsed_query_data['intent'] == 'get_weather':
                 try:
                     with st.spinner('Building...'):
                         weather = await self.get_weather(self.parsed_query_data['location'])
@@ -503,13 +539,18 @@ class WeatherBot:
                     self.parsed_query_data = self.reset_conversation_state
                 finally:
                     await self.close_client()
+            elif self.parsed_query_data['complete'] and self.parsed_query_data['intent'] == 'goodbye':
+                bot_output = self.parsed_query_data['response']
+                self.terminate = self.parsed_query_data['complete']
+                st.session_state['terminate'] = self.parsed_query_data['complete']
+                st.warning("Session terminated. Thank you for using the Weather Chat Bot!")
+                st.stop()
             else:
-                print('retry')
                 bot_output = self.parsed_query_data['response']
 
             st.session_state.user_input.append(user_input)
             st.session_state.bot_response.append(bot_output)
-        message_history = st.empty()
+            st.session_state['input_text'] = ""
 
         if st.session_state['user_input']:
             for i in range(len(st.session_state['user_input']) - 1, -1, -1):
@@ -519,13 +560,12 @@ class WeatherBot:
                         avatar_style="bottts-neutral", is_user=True
                         , key=str(i) + 'data_by_user')
 
+
 async def main():
     wbot = WeatherBot()
     await wbot.run()
 if __name__ == "__main__":
     asyncio.run(main())
-
-
 
 # general questions
 # What is the local time in berlin?
@@ -538,9 +578,8 @@ if __name__ == "__main__":
 # Is there a full moon tonight in berlin ?
 
 # hourly questions
-#'Will it snow tomorrow afternoon in Berlin, Germany?'
+# Will it snow tomorrow afternoon in Berlin, Germany?
 # What will be the heat and uv index today at noon in berlin?
 # What will the weather be like monday at around noon in nyc?
 
 #Thank you so much, all done good bye
-#
